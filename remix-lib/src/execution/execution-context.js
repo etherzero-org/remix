@@ -14,7 +14,6 @@ var web3
 if (typeof window !== 'undefined' && typeof window.web3_etz !== 'undefined') {
   injectedProvider = window.web3_etz.currentProvider
   web3 = new Web3(injectedProvider)
-  console.log("test")
 } else {
   web3 = new Web3(new Web3.providers.HttpProvider('http://localhost:9646'))
 }
