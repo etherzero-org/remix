@@ -11,7 +11,6 @@ var Web3Providers = require('./src/web3Provider/web3Providers')
 var DummyProvider = require('./src/web3Provider/dummyProvider')
 var Web3VMProvider = require('./src/web3Provider/web3VmProvider')
 var AstWalker = require('./src/astWalker')
-var global = require('./src/global')
 var Storage = require('./src/storage')
 
 var EventsDecoder = require('./src/execution/eventsDecoder')
@@ -23,6 +22,10 @@ var txRunner = require('./src/execution/txRunner')
 var executionContext = require('./src/execution/execution-context')
 var typeConversion = require('./src/execution/typeConversion')
 
+var CodeManager = require('./src/code/codeManager')
+var BreakpointManager = require('./src/code/breakpointManager')
+var TraceManager = require('./src/trace/traceManager')
+
 if (typeof (module) !== 'undefined' && typeof (module.exports) !== 'undefined') {
   module.exports = modules()
 }
@@ -33,6 +36,13 @@ if (typeof (window) !== 'undefined') {
 
 function modules () {
   return {
+    code: {
+      CodeManager: CodeManager,
+      BreakpointManager: BreakpointManager
+    },
+    trace: {
+      TraceManager: TraceManager
+    },
     EventManager: EventManager,
     helpers: {
       trace: traceHelper,
@@ -50,7 +60,6 @@ function modules () {
     init: init,
     util: util,
     AstWalker: AstWalker,
-    global: global,
     execution: {
       EventsDecoder: EventsDecoder,
       txExecution: txExecution,

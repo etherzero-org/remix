@@ -1,22 +1,19 @@
 'use strict'
-var remixCore = require('remix-core')
-var TraceManager = remixCore.trace.TraceManager
-var StorageViewer = remixCore.storage.StorageViewer
+
+var StorageViewer = require('./storage/storageViewer')
+var StorageResolver = require('./storage/storageResolver')
+
+var SolidityDecoder = require('./solidity-decoder')
+var SolidityProxy = SolidityDecoder.SolidityProxy
+var stateDecoder = SolidityDecoder.stateDecoder
+var localDecoder = SolidityDecoder.localDecoder
+var InternalCallTree = SolidityDecoder.InternalCallTree
+
 var remixLib = require('remix-lib')
+var TraceManager = remixLib.trace.TraceManager
+var CodeManager = remixLib.code.CodeManager
 var traceHelper = remixLib.helpers.trace
-var global = remixLib.global
-var init = remixLib.init
-var executionContext = remixLib.execution.executionContext
 var EventManager = remixLib.EventManager
-var Web3Providers = remixLib.vm.Web3Providers
-var DummyProvider = remixLib.vm.DummyProvider
-var CodeManager = remixCore.code.CodeManager
-var remixSolidity = require('remix-solidity')
-var SolidityProxy = remixSolidity.SolidityProxy
-var stateDecoder = remixSolidity.stateDecoder
-var localDecoder = remixSolidity.localDecoder
-var InternalCallTree = remixSolidity.InternalCallTree
-var StorageResolver = remixCore.storage.StorageResolver
 
 /**
   * Ethdebugger is a wrapper around a few classes that helps debugging a transaction
@@ -35,15 +32,22 @@ function Ethdebugger (opts) {
   this.opts = opts || {}
   if (!this.opts.compilationResult) this.opts.compilationResult = () => { return null }
 
+  this.web3 = opts.web3
+
   this.event = new EventManager()
 
   this.tx
 
-  this.web3Providers = new Web3Providers()
-  this.addProvider('DUMMYWEB3', new DummyProvider())
-  this.switchProvider('DUMMYWEB3')
+  this.traceManager = new TraceManager({web3: this.web3})
+  this.codeManager = new CodeManager(this.traceManager)
+  this.solidityProxy = new SolidityProxy(this.traceManager, this.codeManager)
+  this.storageResolver = null
 
-  this.traceManager = new TraceManager()
+  this.callTree = new InternalCallTree(this.event, this.traceManager, this.solidityProxy, this.codeManager, { includeLocalVariables: true })
+}
+
+Ethdebugger.prototype.setManagers = function () {
+  this.traceManager = new TraceManager({web3: this.web3})
   this.codeManager = new CodeManager(this.traceManager)
   this.solidityProxy = new SolidityProxy(this.traceManager, this.codeManager)
   this.storageResolver = null
@@ -71,7 +75,7 @@ Ethdebugger.prototype.sourceLocationFromVMTraceIndex = function (address, stepIn
 }
 
 Ethdebugger.prototype.sourceLocationFromInstructionIndex = function (address, instIndex, callback) {
-  this.debugger.callTree.sourceLocationTracker.getSourceLocationFromInstructionIndex(address, instIndex, this.solidityProxy.contracts, function (error, rawLocation) {
+  this.callTree.sourceLocationTracker.getSourceLocationFromInstructionIndex(address, instIndex, this.solidityProxy.contracts, function (error, rawLocation) {
     callback(error, rawLocation)
   })
 }
@@ -150,34 +154,10 @@ Ethdebugger.prototype.storageViewAt = function (step, address) {
     address: address
   }, this.storageResolver, this.traceManager)
 }
-/* set env */
-Ethdebugger.prototype.web3 = function () {
-  return global.web3
-}
 
-Ethdebugger.prototype.addProvider = function (type, obj) {
-  this.web3Providers.addProvider(type, obj)
-  this.event.trigger('providerAdded', [type])
-}
-
-Ethdebugger.prototype.switchProvider = function (type) {
-  var self = this
-  this.web3Providers.get(type, function (error, obj) {
-    if (error) {
-      console.log('provider ' + type + ' not defined')
-    } else {
-      global.web3 = obj
-      executionContext.detectNetwork((error, network) => {
-        if (error || !network) {
-          global.web3Debug = obj
-        } else {
-          var webDebugNode = init.web3DebugNode(network.name)
-          global.web3Debug = !webDebugNode ? obj : webDebugNode
-        }
-      })
-      self.event.trigger('providerChanged', [type])
-    }
-  })
+Ethdebugger.prototype.updateWeb3 = function (web3) {
+  this.web3 = web3
+  this.setManagers()
 }
 
 Ethdebugger.prototype.debug = function (tx) {
@@ -192,7 +172,6 @@ Ethdebugger.prototype.debug = function (tx) {
 Ethdebugger.prototype.unLoad = function () {
   this.traceManager.init()
   this.codeManager.clear()
-  this.stepManager.reset()
   this.event.trigger('traceUnloaded')
 }
 
@@ -208,13 +187,12 @@ Ethdebugger.prototype.debug = function (tx) {
   this.tx = tx
   var self = this
   this.traceManager.resolveTrace(tx, function (error, result) {
-    console.log('trace loaded ' + result)
     if (result) {
       self.event.trigger('newTraceLoaded', [self.traceManager.trace])
       if (self.breakpointManager && self.breakpointManager.hasBreakpoint()) {
         self.breakpointManager.jumpNextBreakpoint(false)
       }
-      self.storageResolver = new StorageResolver()
+      self.storageResolver = new StorageResolver({web3: self.traceManager.web3})
     } else {
       self.statusMessage = error ? error.message : 'Trace not loaded'
     }
